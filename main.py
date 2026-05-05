@@ -1,21 +1,43 @@
+"""Entry point for the Skillevate user microservice."""
+
+from __future__ import annotations
+
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import close_mongo_connection, connect_to_mongo, get_database
+from app.db.client import close as close_db
+from app.db.client import connect as connect_db
+from app.db.client import get_database
 from app.routes.users import router as users_router
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    connect_db()
+    logger.info("Skillevate user service ready")
+    try:
+        yield
+    finally:
+        close_db()
+
+
 app = FastAPI(
     title=settings.app_name,
-    description="Skillevate user identity, profile, and preference microservice",
-    version="0.1.0",
+    description=(
+        "Skillevate user identity and preference microservice. Stores only "
+        "generic, cross-cutting profile data sourced from Auth0; domain-"
+        "specific data lives in its own collection."
+    ),
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -27,32 +49,23 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def startup() -> None:
-    connect_to_mongo()
-    logger.info("Connected to MongoDB")
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    close_mongo_connection()
-    logger.info("Closed MongoDB connection")
-
-
-@app.get("/")
+@app.get("/", tags=["meta"])
 def root() -> dict:
     return {
         "service": settings.app_name,
-        "version": "0.1.0",
+        "version": "0.2.0",
         "endpoints": {
-            "health": "/health",
-            "users": "/api/users",
+            "health": "GET /health",
+            "sync_user": "POST /api/users/sync",
+            "get_user": "GET /api/users/{auth0_sub}",
+            "update_preferences": "PATCH /api/users/{auth0_sub}/preferences",
+            "delete_user": "DELETE /api/users/{auth0_sub}",
             "docs": "/docs",
         },
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["meta"])
 def health_check() -> dict:
     db = get_database()
     db.command("ping")
@@ -60,4 +73,3 @@ def health_check() -> dict:
 
 
 app.include_router(users_router)
-
