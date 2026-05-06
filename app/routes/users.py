@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+
+logger = logging.getLogger(__name__)
 
 from app.dependencies import get_user_service
 from app.models.user import (
@@ -38,6 +42,7 @@ def sync_user(
     (200).
     """
 
+    logger.info("POST /api/users/sync (sub=%s)", profile.sub)
     result: SyncResult = service.sync_from_auth0(profile)
     response.status_code = (
         status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
